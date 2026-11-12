@@ -1,0 +1,46 @@
+# Local specifications and working notes
+/WaterMarker_TZ.md
+/*_TZ.md
+/*ТЗ*.md
+/.local/
+/notes/
+/private/
+
+# Agent files and local configuration
+AGENTS.md
+AGENTS.MD
+.agents/
+.codex/
+.claude/
+.aws/
+.env
+.env.*
+!.env.example
+
+# IDE and build output
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+**/bin/
+**/obj/
+/artifacts/
+**/TestResults/
+*.trx
+*.coverage*
+.nuget/
+
+# User data and private test media
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+/test-data/
+/tests/Fixtures/Private/
+/tools/ffmpeg/
+ffmpeg.exe
+ffprobe.exe
+*.log

@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/WaterMarker.App/WaterMarker.App.csproj" />
+    <Project Path="src/WaterMarker.Core/WaterMarker.Core.csproj" />
+    <Project Path="src/WaterMarker.Infrastructure/WaterMarker.Infrastructure.csproj" />
+    <Project Path="src/WaterMarker.Rendering/WaterMarker.Rendering.csproj" />
+  </Folder>
+</Solution>

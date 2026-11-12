@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <PlatformTarget>x64</PlatformTarget>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../WaterMarker.Core/WaterMarker.Core.csproj" />
+    <ProjectReference Include="../WaterMarker.Infrastructure/WaterMarker.Infrastructure.csproj" />
+    <ProjectReference Include="../WaterMarker.Rendering/WaterMarker.Rendering.csproj" />
+  </ItemGroup>
+</Project>
