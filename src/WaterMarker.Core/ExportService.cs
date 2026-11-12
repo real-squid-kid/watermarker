@@ -13,6 +13,7 @@ public interface IJournalStore
     void MarkInterrupted(Guid id);
     IReadOnlyList<ExportRecord> List(JournalFilter filter);
     ExportRecord? Find(string code);
+    IReadOnlyList<ExportRecord> SearchCodes(string fragment);
 }
 
 public interface IExportMedia
@@ -24,27 +25,37 @@ public interface IExportMedia
     void ValidateOutput(string path);
 }
 
-public sealed class ExportService(IJournalStore store)
+public sealed class ExportService(IJournalStore store, Action<ExportCheckpoint, ExportRecord>? checkpoint = null)
 {
-    public ExportRecord Export(ExportRequest request, IExportMedia media, CancellationToken cancellationToken = default)
+    public ExportRecord Export(ExportRequest request, IExportMedia media, CancellationToken cancellationToken = default, ExportControl? control = null)
     {
+        using var localControl = control is null ? new ExportControl() : null;
+        control ??= localControl!;
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, control.Token);
+        var token = linked.Token;
         request = request.Validate();
         if (File.Exists(request.TargetPath) || Directory.Exists(request.TargetPath))
             throw new IOException("This name is already in use. Choose another file name.");
-        cancellationToken.ThrowIfCancellationRequested();
+        token.ThrowIfCancellationRequested();
         var record = store.Reserve(request, media.SourceName, media.SourceType, media.CodeCount);
         var publishing = false;
         try
         {
-            media.RenderTo(record.TemporaryPath, record.Codes, cancellationToken);
+            checkpoint?.Invoke(ExportCheckpoint.Reserved, record);
+            media.RenderTo(record.TemporaryPath, record.Codes, token);
+            checkpoint?.Invoke(ExportCheckpoint.Rendered, record);
             media.ValidateOutput(record.TemporaryPath);
             var hash = FileChecksum(record.TemporaryPath);
-            cancellationToken.ThrowIfCancellationRequested();
+            control.BeginPublishing(token);
+            checkpoint?.Invoke(ExportCheckpoint.PublicationStarting, record);
             // From this point cancellation must not separate publication from its journal entry.
             store.SetPublishing(record.Id, hash);
             publishing = true;
+            checkpoint?.Invoke(ExportCheckpoint.Publishing, record);
             File.Move(record.TemporaryPath, record.TargetPath, overwrite: false);
+            checkpoint?.Invoke(ExportCheckpoint.Published, record);
             store.SetReady(record.Id);
+            checkpoint?.Invoke(ExportCheckpoint.Ready, record);
             return store.Find(record.Codes[0])!;
         }
         catch
@@ -52,8 +63,13 @@ public sealed class ExportService(IJournalStore store)
             // Publishing records remain searchable even if the final database update fails.
             if (!publishing)
             {
-                try { File.Delete(record.TemporaryPath); }
-                finally { store.MarkInterrupted(record.Id); }
+                try
+                {
+                    if (ExportPaths.OwnsTemporary(record)) File.Delete(record.TemporaryPath);
+                    store.MarkInterrupted(record.Id);
+                }
+                // Preserve the original failure; the persisted Rendering record makes cleanup retryable.
+                catch (Exception cleanup) when (cleanup is IOException or UnauthorizedAccessException or System.Data.Common.DbException) { }
             }
             throw;
         }

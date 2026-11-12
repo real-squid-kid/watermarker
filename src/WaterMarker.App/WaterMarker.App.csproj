@@ -7,6 +7,7 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
   <ItemGroup>
+    <EmbeddedResource Include="../../docs/PROMPTS.md" LogicalName="WaterMarker.ProcessingPrompts" />
     <ProjectReference Include="../WaterMarker.Core/WaterMarker.Core.csproj" />
     <ProjectReference Include="../WaterMarker.Infrastructure/WaterMarker.Infrastructure.csproj" />
     <ProjectReference Include="../WaterMarker.Rendering/WaterMarker.Rendering.csproj" />

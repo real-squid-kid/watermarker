@@ -1,0 +1,35 @@
+<Window x:Class="WaterMarker.App.VideoProgressWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:visuals="clr-namespace:WaterMarker.App.Visuals"
+        Title="Processing video" Width="600" Height="350" ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False" Background="#153E32"
+        FontFamily="Segoe UI" FontSize="14" UseLayoutRounding="True">
+    <Window.Resources>
+        <ResourceDictionary><ResourceDictionary.MergedDictionaries><ResourceDictionary Source="Themes/Desk.xaml" /></ResourceDictionary.MergedDictionaries></ResourceDictionary>
+    </Window.Resources>
+    <Window.InputBindings><KeyBinding Key="Escape" Command="{Binding CancelCommand}" /></Window.InputBindings>
+    <visuals:DeskSurface Padding="22">
+        <Grid>
+            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+            <DockPanel Margin="4,0,4,15">
+                <TextBlock Text="{Binding Phase}" Foreground="#F5E8BF" FontFamily="Georgia" FontSize="21" />
+                <Border Background="#101B17" BorderBrush="#9B8456" BorderThickness="2" CornerRadius="5" Padding="10,5" HorizontalAlignment="Right">
+                    <TextBlock x:Name="Elapsed" Text="{Binding ElapsedText}" FontFamily="Consolas" FontSize="20" Foreground="#FFE29C" AutomationProperties.Name="Elapsed processing time" />
+                </Border>
+            </DockPanel>
+            <Border Grid.Row="1" Background="{StaticResource IvoryKey}" BorderBrush="#B4A075" BorderThickness="1,1,1,3" CornerRadius="4" Padding="18,12" Margin="3,0,3,12">
+                <StackPanel>
+                    <TextBlock x:Name="Prompt" Text="{Binding Prompt}" Foreground="#4F503B" FontFamily="Consolas" FontSize="16" Height="45" TextWrapping="Wrap" />
+                    <Grid Margin="0,5,0,4">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="55" /></Grid.ColumnDefinitions>
+                        <ProgressBar x:Name="VideoProgress" Minimum="0" Maximum="100" Value="{Binding Percent, Mode=OneWay}" Height="34" Style="{StaticResource YellowProgress}" AutomationProperties.Name="Video processing progress" />
+                        <TextBlock Grid.Column="1" Text="{Binding PercentText}" HorizontalAlignment="Right" VerticalAlignment="Center" FontFamily="Consolas" Foreground="#474936" FontWeight="Bold" />
+                    </Grid>
+                    <TextBlock Text="{Binding ProcessedText}" FontFamily="Consolas" FontSize="12" Foreground="#67654E" Margin="0,4,0,0" />
+                </StackPanel>
+            </Border>
+            <Button x:Name="CancelButton" Grid.Row="2" Content="_Cancel" Command="{Binding CancelCommand}" HorizontalAlignment="Right" MinWidth="96" Margin="0" />
+        </Grid>
+    </visuals:DeskSurface>
+</Window>

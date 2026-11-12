@@ -1,12 +1,24 @@
 using System.IO;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using WaterMarker.Core;
 
 namespace WaterMarker.Rendering;
 
 public sealed record ImageDocument(string SourcePath, string SourceType, BitmapSource Pixels)
 {
     public string SourceName => Path.GetFileName(SourcePath);
+
+    public static ImageDocument FromCapture(ScreenPixels selection)
+    {
+        if (selection.Bounds.Width < 1 || selection.Bounds.Height < 1 ||
+            selection.Bgra.Length != checked(selection.Bounds.Width * selection.Bounds.Height * 4))
+            throw new ArgumentException("Invalid screen selection.");
+        var pixels = BitmapSource.Create(selection.Bounds.Width, selection.Bounds.Height, 96, 96,
+            PixelFormats.Bgra32, null, selection.Bgra, selection.Bounds.Width * 4);
+        pixels.Freeze();
+        return new("Screenshot.png", "Screenshot", pixels);
+    }
 
     public static ImageDocument Load(string path)
     {

@@ -33,10 +33,12 @@ public partial class App : Application
             var store = await Task.Run(() =>
             {
                 var journal = new JournalStore(databasePath);
-                journal.Recover();
-                return journal;
+                var recovery = journal.Recover();
+                return (Journal: journal, Recovery: recovery);
             });
-            MainWindow = new MainWindow(new MainViewModel(store, new DesktopDialogs()));
+            var viewModel = new MainViewModel(store.Journal, new DesktopDialogs(dataDirectory));
+            viewModel.ShowRecoveryResult(store.Recovery);
+            MainWindow = new MainWindow(viewModel);
             MainWindow.Show();
         }
         catch (Exception)

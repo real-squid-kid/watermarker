@@ -31,8 +31,8 @@ public sealed class WindowLayoutTests
         {
             var window = new MainWindow(vm);
             var content = (FrameworkElement)window.Content;
-            content.Measure(new Size(1224, 820));
-            content.Arrange(new Rect(0, 0, 1224, 820));
+            content.Measure(new Size(1104, 642));
+            content.Arrange(new Rect(0, 0, 1104, 642));
             content.UpdateLayout();
             Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ContextIdle);
             var project = Assert.IsType<ComboBox>(window.FindName("ProjectInput"));
@@ -40,13 +40,13 @@ public sealed class WindowLayoutTests
             Assert.Equal("No project", project.SelectedItem!.ToString());
             Assert.True(recipient.Focusable);
             Assert.True(project.Focusable);
-            var scrolling = Assert.IsType<ScrollViewer>(content);
-            Assert.InRange(scrolling.ScrollableHeight, 0, 1);
+            Assert.IsType<Viewbox>(content);
+            Assert.Equal(ResizeMode.CanMinimize, window.ResizeMode);
             var output = Environment.GetEnvironmentVariable("WATERMARKER_ACCEPTANCE_DIR");
             if (!string.IsNullOrEmpty(output))
             {
                 Directory.CreateDirectory(output);
-                var bitmap = new RenderTargetBitmap(1224, 820, 96, 96, PixelFormats.Pbgra32);
+                var bitmap = new RenderTargetBitmap(1104, 642, 96, 96, PixelFormats.Pbgra32);
                 bitmap.Render(content);
                 ImageTests.SavePng(bitmap, Path.Combine(output, "main-window.png"));
             }

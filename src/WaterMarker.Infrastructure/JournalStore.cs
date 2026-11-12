@@ -4,7 +4,7 @@ using WaterMarker.Core;
 
 namespace WaterMarker.Infrastructure;
 
-public sealed class JournalStore : IJournalStore
+public sealed class JournalStore : IJournalStore, IRecoveryStore
 {
     private readonly string connectionString;
     private readonly ICodeGenerator codes;
@@ -101,7 +101,7 @@ public sealed class JournalStore : IJournalStore
         request = request.Validate();
         if (codeCount < 1 || codeCount > 100_000) throw new ArgumentOutOfRangeException(nameof(codeCount));
         var id = Guid.NewGuid();
-        var temporaryPath = Path.Combine(Path.GetDirectoryName(request.TargetPath)!, $".watermarker-{id:N}.tmp");
+        var temporaryPath = ExportPaths.Temporary(id, request.TargetPath);
         using var connection = Open();
         using var transaction = connection.BeginTransaction();
         using (var command = Command(connection, """
@@ -139,14 +139,14 @@ public sealed class JournalStore : IJournalStore
             null, sourceName, sourceType, request.TargetPath, temporaryPath, ExportState.Rendering, null, reserved);
     }
 
-    public void SetPublishing(Guid id, string checksum) => Update(id, "state='Publishing', checksum=$value", checksum);
-    public void SetReady(Guid id) => Update(id, "state='Ready', exported_at=$value", DateTimeOffset.UtcNow.ToString("O"));
-    public void MarkInterrupted(Guid id) => Update(id, "state='Interrupted', checksum=$value", null);
+    public void SetPublishing(Guid id, string checksum) => Update(id, "state='Publishing', checksum=$value", checksum, "state='Rendering'");
+    public void SetReady(Guid id) => Update(id, "state='Ready', exported_at=$value", DateTimeOffset.UtcNow.ToString("O"), "state='Publishing'");
+    public void MarkInterrupted(Guid id) => Update(id, "state='Interrupted', checksum=$value", null, "state IN ('Rendering','Publishing')");
 
-    private void Update(Guid id, string assignment, string? value)
+    private void Update(Guid id, string assignment, string? value, string expectedState)
     {
         using var connection = Open();
-        using var command = Command(connection, $"UPDATE exports SET {assignment} WHERE id=$id", ("$id", id.ToString()), ("$value", value));
+        using var command = Command(connection, $"UPDATE exports SET {assignment} WHERE id=$id AND {expectedState}", ("$id", id.ToString()), ("$value", value));
         if (command.ExecuteNonQuery() != 1) throw new InvalidOperationException("Export record no longer exists.");
     }
 
@@ -159,6 +159,16 @@ public sealed class JournalStore : IJournalStore
         code = CodeGenerator.Normalize(code);
         if (!CodeGenerator.IsValid(code)) return null;
         return ReadRecords("id IN (SELECT export_id FROM watermark_codes WHERE code=$code)", ("$code", code)).SingleOrDefault();
+    }
+
+    public IReadOnlyList<ExportRecord> SearchCodes(string fragment)
+    {
+        fragment = CodeGenerator.Normalize(fragment);
+        if (fragment.Length is < 1 or > CodeGenerator.Length || !fragment.All(CodeGenerator.Alphabet.Contains)) return [];
+        // EXISTS returns each copy once, even when several of its codes contain the fragment.
+        // instr is a literal substring search: no LIKE wildcard or SQL syntax in user input.
+        return ReadRecords("EXISTS (SELECT 1 FROM watermark_codes WHERE export_id=exports.id AND instr(code, $fragment)>0)",
+            ("$fragment", fragment));
     }
 
     private IReadOnlyList<ExportRecord> ReadRecords(string where, params (string Name, object? Value)[] parameters)
@@ -189,32 +199,6 @@ public sealed class JournalStore : IJournalStore
         return result;
     }
 
-    public void Recover()
-    {
-        foreach (var record in ReadRecords("state IN ('Rendering','Publishing')"))
-        {
-            try
-            {
-                if (record.State == ExportState.Publishing && record.Checksum is not null)
-                {
-                    if (File.Exists(record.TargetPath) && ExportService.FileChecksum(record.TargetPath) == record.Checksum)
-                    {
-                        SetReady(record.Id);
-                        File.Delete(record.TemporaryPath);
-                        continue;
-                    }
-                    if (!File.Exists(record.TargetPath) && File.Exists(record.TemporaryPath) && ExportService.FileChecksum(record.TemporaryPath) == record.Checksum)
-                    {
-                        File.Move(record.TemporaryPath, record.TargetPath, false);
-                        SetReady(record.Id);
-                        continue;
-                    }
-                }
-                File.Delete(record.TemporaryPath);
-                MarkInterrupted(record.Id);
-            }
-            catch (IOException) { /* retry inaccessible files at the next startup */ }
-            catch (UnauthorizedAccessException) { /* do not discard a recoverable record */ }
-        }
-    }
+    public IReadOnlyList<ExportRecord> GetIncomplete() => ReadRecords("state IN ('Rendering','Publishing')");
+    public RecoveryResult Recover() => new ExportRecovery(this).Recover();
 }

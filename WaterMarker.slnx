@@ -6,6 +6,8 @@
     <Project Path="src/WaterMarker.Rendering/WaterMarker.Rendering.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/WaterMarker.FaultHost/WaterMarker.FaultHost.csproj" />
     <Project Path="tests/WaterMarker.Stage1.Tests/WaterMarker.Stage1.Tests.csproj" />
+    <Project Path="tests/WaterMarker.Stage2.Tests/WaterMarker.Stage2.Tests.csproj" />
   </Folder>
 </Solution>

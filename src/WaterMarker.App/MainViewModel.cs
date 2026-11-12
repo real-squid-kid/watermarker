@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Windows.Media.Imaging;
+using WaterMarker.App.Visuals;
 using WaterMarker.Core;
 using WaterMarker.Infrastructure;
 using WaterMarker.Rendering;
@@ -19,6 +20,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private readonly IJournalStore store;
     private readonly IDesktopDialogs dialogs;
     private ImageDocument? image;
+    private VideoInfo? video;
+    private readonly VideoTools videoTools = new();
     private ProjectOption? selectedProject;
     private ProjectOption? selectedFilter;
     private ExportRecord? selectedRecord;
@@ -28,6 +31,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private int previewVersion;
     private CancellationTokenSource? previewCancellation;
     private string? lastOutput;
+    private ExportControl? exportControl;
+    private CancellationTokenSource? searchCancellation;
+    private int searchVersion;
+    public Task JournalSearchExecution { get; private set; } = Task.CompletedTask;
     public event PropertyChangedEventHandler? PropertyChanged;
 
     public ObservableCollection<ProjectOption> Projects { get; } = [];
@@ -38,12 +45,26 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public string Channel { get => channel; set { channel = value; Changed(); Changed(nameof(IsOtherChannel)); } }
     public string OtherChannel { get => otherChannel; set { otherChannel = value; Changed(); } }
     public bool IsOtherChannel => Channel == "Other";
-    public string SearchCode { get => searchCode; set { searchCode = value; Changed(); } }
+    public string SearchCode
+    {
+        get => searchCode;
+        set
+        {
+            if (searchCode == value) return;
+            searchCode = value;
+            Changed();
+            JournalSearchExecution = SearchLiveAsync();
+        }
+    }
     public string Status { get => status; private set { status = value; Changed(); } }
     public string SearchStatus { get => searchStatus; private set { searchStatus = value; Changed(); } }
-    public string SourceDisplay => image is null ? "No image selected" : $"{image.SourceName} · {image.Pixels.PixelWidth} × {image.Pixels.PixelHeight}";
+    public string SourceDisplay => image is null ? "No media selected" : $"{image.SourceName} · {image.Pixels.PixelWidth} × {image.Pixels.PixelHeight}" +
+        (video is null ? "" : $" · {VideoProgressViewModel.Format(video.Duration)}");
+    public double TelevisionAspectRatio => image is null ? TelevisionFormats.Default : TelevisionFormats.Select(image.Pixels.PixelWidth, image.Pixels.PixelHeight);
     public BitmapSource? Preview { get => preview; private set { preview = value; Changed(); WatermarkCommand?.Refresh(); } }
     public bool IsBusy { get => busy; private set { busy = value; Changed(); RefreshCommands(); } }
+    public bool IsExporting => exportControl is not null;
+    public bool CanCancel => IsBusy && exportControl?.CanCancel == true;
     public ProjectOption? SelectedProject
     {
         get => selectedProject;
@@ -65,11 +86,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
         $"Copy: {SelectedRecord.TargetPath}\nCodes ({SelectedRecord.Codes.Count}):\n{string.Join("  ", SelectedRecord.Codes)}";
 
     public AsyncCommand OpenCommand { get; }
+    public AsyncCommand CaptureCommand { get; }
     public AsyncCommand WatermarkCommand { get; }
+    public RelayCommand CancelCommand { get; }
     public RelayCommand NewProjectCommand { get; }
     public RelayCommand RenameProjectCommand { get; }
     public RelayCommand SearchCommand { get; }
     public RelayCommand RefreshJournalCommand { get; }
+    public RelayCommand ClearSearchCommand { get; }
     public RelayCommand OpenFileCommand { get; }
     public RelayCommand OpenFolderCommand { get; }
 
@@ -78,11 +102,14 @@ public sealed class MainViewModel : INotifyPropertyChanged
         this.store = store;
         this.dialogs = dialogs;
         OpenCommand = new(OpenAsync, ReportError, () => !IsBusy);
+        CaptureCommand = new(CaptureAsync, ReportError, () => !IsBusy);
         WatermarkCommand = new(ExportAsync, ReportError, () => !IsBusy && image is not null && Preview is not null);
+        CancelCommand = new(CancelExport, () => CanCancel);
         NewProjectCommand = new(() => Safe(() => EditProject(false)));
         RenameProjectCommand = new(() => Safe(() => EditProject(true)), () => SelectedProject?.Project is not null);
         SearchCommand = new(() => Safe(Search));
         RefreshJournalCommand = new(() => Safe(RefreshJournal));
+        ClearSearchCommand = new(() => Safe(ShowJournal));
         OpenFileCommand = new(() => Safe(() => ShellActions.OpenFile(lastOutput!)), () => lastOutput is not null);
         OpenFolderCommand = new(() => Safe(() => ShellActions.OpenFolder(lastOutput!)), () => lastOutput is not null);
         ReloadProjects(null);
@@ -124,10 +151,44 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             var loaded = await StaWorker.Run(() => ImageDocument.Load(path));
             image = loaded;
+            video = null;
             Preview = null;
             Changed(nameof(SourceDisplay));
+            Changed(nameof(TelevisionAspectRatio));
             await RefreshPreviewAsync();
             if (Preview is not null) Status = "";
+        }
+        finally { IsBusy = false; }
+    }
+
+    public async Task LoadMediaAsync(string path)
+    {
+        if (!new[] { ".mp4", ".mov", ".mkv" }.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase))
+        {
+            await LoadImageAsync(path);
+            return;
+        }
+        IsBusy = true;
+        Status = "Reading video duration…";
+        try
+        {
+            await videoTools.EnsureAvailableAsync();
+            var loaded = await videoTools.ProbeAsync(path);
+            var bytes = await videoTools.PreviewAsync(loaded);
+            var frame = await StaWorker.Run(() =>
+            {
+                using var buffer = new MemoryStream(bytes);
+                var decoder = BitmapDecoder.Create(buffer, BitmapCreateOptions.None, BitmapCacheOption.OnLoad);
+                var pixels = decoder.Frames[0];
+                pixels.Freeze();
+                return new ImageDocument(loaded.SourcePath, "Video", pixels);
+            });
+            image = frame;
+            video = loaded;
+            Changed(nameof(SourceDisplay));
+            Changed(nameof(TelevisionAspectRatio));
+            await RefreshPreviewAsync();
+            if (Preview is not null) Status = loaded.RequiresMkv ? "This video's audio will be saved in MKV." : "";
         }
         finally { IsBusy = false; }
     }
@@ -135,7 +196,83 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private async Task OpenAsync()
     {
         var path = dialogs.OpenImage();
-        if (path is not null) await LoadImageAsync(path);
+        if (path is null) return;
+        try { await LoadMediaAsync(path); }
+        catch (IOException ex) { throw new ArgumentException("The media could not be opened. Check its location and format.", ex); }
+    }
+
+    private async Task CaptureAsync()
+    {
+        IsBusy = true;
+        Status = "Capturing…";
+        try
+        {
+            var captured = await dialogs.CaptureImageAsync();
+            if (captured is null) { Status = ""; return; }
+            image = captured;
+            video = null;
+            Changed(nameof(SourceDisplay));
+            Changed(nameof(TelevisionAspectRatio));
+            await RefreshPreviewAsync();
+            if (Preview is not null) Status = "";
+        }
+        catch (IOException) { Status = "Screen capture failed. Try again."; }
+        finally { IsBusy = false; }
+    }
+
+    public void ShowRecoveryResult(RecoveryResult result)
+    {
+        Status = result.Pending > 0 ? "Some copies could not be recovered. Close files in use and restart WaterMarker."
+            : result.Completed > 0 ? $"Recovered {result.Completed} copies."
+            : result.Interrupted > 0 ? "Interrupted operations were cleaned up." : "";
+    }
+
+    public static bool CanDropFiles(IReadOnlyList<string> paths)
+    {
+        if (paths.Count != 1) return false;
+        try
+        {
+            var extension = Path.GetExtension(paths[0]);
+            return File.Exists(paths[0]) && new[] { ".png", ".jpg", ".jpeg", ".mp4", ".mov", ".mkv" }.Contains(extension, StringComparer.OrdinalIgnoreCase);
+        }
+        catch (ArgumentException) { return false; }
+    }
+
+    public async Task OpenDroppedFilesAsync(IReadOnlyList<string> paths)
+    {
+        if (IsBusy) return;
+        if (!CanDropFiles(paths)) { Status = "Drop one PNG, JPEG, MP4, MOV or MKV file."; return; }
+        try { await LoadMediaAsync(paths[0]); }
+        catch (Exception ex) { ReportError(ex); }
+    }
+
+    private void CancelExport()
+    {
+        if (exportControl?.TryCancel() == true) Status = "Cancelling…";
+        RefreshCancellation();
+    }
+
+    private void RefreshCancellation()
+    {
+        Changed(nameof(IsExporting));
+        Changed(nameof(CanCancel));
+        CancelCommand.Refresh();
+    }
+
+    public async Task StopForCloseAsync()
+    {
+        CancelExport();
+        await WatermarkCommand.Execution;
+        ReleasePreview();
+    }
+
+    public void ReleasePreview()
+    {
+        CancelPendingSearch();
+        ++previewVersion;
+        previewCancellation?.Cancel();
+        previewCancellation?.Dispose();
+        previewCancellation = null;
     }
 
     private async Task RefreshPreviewAsync()
@@ -166,35 +303,84 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private async Task ExportAsync()
     {
         var source = image!;
+        var sourceVideo = video;
         var channelName = IsOtherChannel ? OtherChannel : Channel;
         ExportRequest.ValidateFields(Recipient, channelName);
-        var target = dialogs.SaveImage(source);
+        var target = sourceVideo is null ? dialogs.SaveImage(source) : dialogs.SaveVideo(sourceVideo);
         if (target is null) return;
         var extension = Path.GetExtension(target).ToLowerInvariant();
         var jpeg = extension is ".jpg" or ".jpeg";
-        if (extension != ".png" && !jpeg) throw new ArgumentException("Choose a PNG or JPEG output file.");
-        if (source.SourceType == "PNG" && jpeg) throw new ArgumentException("PNG images must be saved as PNG to preserve transparency.");
+        if (sourceVideo is null)
+        {
+            if (extension != ".png" && !jpeg) throw new ArgumentException("Choose a PNG or JPEG output file.");
+            if (source.SourceType != "JPEG" && jpeg) throw new ArgumentException("Screenshots and PNG images must be saved as PNG to preserve transparency.");
+        }
+        else
+        {
+            if (extension is not (".mp4" or ".mkv")) throw new ArgumentException("Choose an MP4 or MKV output file.");
+            if (sourceVideo.RequiresMkv && extension != ".mkv") throw new ArgumentException("Choose MKV to preserve this video's original audio tracks.");
+        }
         // Immutable snapshot: editing project or fields after this point affects the next export only.
         var request = new ExportRequest(SelectedProject?.Project, Recipient, channelName, target).Validate();
+        using var control = new ExportControl();
+        exportControl = control;
         IsBusy = true;
+        RefreshCancellation();
         Status = "Rendering…";
+        var videoProgress = sourceVideo is null ? null : new VideoProgressViewModel(sourceVideo.Duration, CancelCommand);
+        var progress = new Progress<ExportCheckpoint>(phase =>
+        {
+            if (!ReferenceEquals(exportControl, control)) return;
+            if (phase >= ExportCheckpoint.PublicationStarting) { Status = "Publishing…"; videoProgress?.Publishing(); }
+            RefreshCancellation();
+        });
         try
         {
-            var record = await StaWorker.Run(() =>
+            ExportRecord? record = null;
+            var encodingProgress = new Progress<VideoProgress>(value =>
             {
-                var layout = WatermarkRenderer.Calculate(source.Pixels.PixelWidth, source.Pixels.PixelHeight, request.Project?.Name);
-                return new ExportService(store).Export(request, new PreparedImage(source, layout, jpeg));
+                if (ReferenceEquals(exportControl, control)) videoProgress?.Update(value);
             });
+            async Task RenderAsync()
+            {
+                record = await StaWorker.Run(() =>
+                {
+                    var layout = WatermarkRenderer.Calculate(source.Pixels.PixelWidth, source.Pixels.PixelHeight, request.Project?.Name);
+                    IExportMedia media = sourceVideo is null ? new PreparedImage(source, layout, jpeg)
+                        : new PreparedVideo(sourceVideo, layout, extension == ".mkv", videoTools, encodingProgress);
+                    return new ExportService(store, (phase, _) => ((IProgress<ExportCheckpoint>)progress).Report(phase))
+                        .Export(request, media, control: control);
+                });
+                videoProgress?.Complete();
+            }
+            if (videoProgress is null) await RenderAsync();
+            else await dialogs.RunVideoExportAsync(videoProgress, RenderAsync);
+            if (record is null) throw new InvalidOperationException("The export did not complete.");
             lastOutput = record.TargetPath;
             RefreshJournal();
-            SelectedRecord = record;
+            SelectedRecord = Journal.FirstOrDefault(item => item.Id == record.Id);
             Status = "Copy saved.";
         }
-        finally { IsBusy = false; }
+        catch (OperationCanceledException) { Status = "Cancelled."; }
+        catch (IOException ex)
+        {
+            var message = File.Exists(target) || Directory.Exists(target)
+                ? "This name is already in use. Choose another file name."
+                : "The copy could not be saved. Check the folder, access rights and available disk space.";
+            throw new ArgumentException(message, ex);
+        }
+        finally
+        {
+            exportControl = null;
+            IsBusy = false;
+            RefreshCancellation();
+        }
     }
 
     private void RefreshJournal()
     {
+        CancelPendingSearch();
+        if (!string.IsNullOrWhiteSpace(SearchCode)) { Search(); return; }
         if (SelectedFilter is null) return;
         var records = store.List(new(SelectedFilter.AllProjects, SelectedFilter.Project?.Id));
         Journal.Clear();
@@ -205,11 +391,65 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     private void Search()
     {
-        var record = store.Find(SearchCode);
+        CancelPendingSearch();
+        if (string.IsNullOrWhiteSpace(SearchCode)) { RefreshJournal(); return; }
+        ApplySearchResults(store.SearchCodes(SearchCode));
+    }
+
+    private void ShowJournal()
+    {
+        CancelPendingSearch();
+        searchCode = "";
+        Changed(nameof(SearchCode));
+        RefreshJournal();
+    }
+
+    private void CancelPendingSearch()
+    {
+        ++searchVersion;
+        searchCancellation?.Cancel();
+        searchCancellation = null;
+    }
+
+    private async Task SearchLiveAsync()
+    {
+        CancelPendingSearch();
+        var version = searchVersion;
+        var fragment = SearchCode;
+        using var cancellation = new CancellationTokenSource();
+        searchCancellation = cancellation;
         Journal.Clear();
-        if (record is not null) Journal.Add(record);
-        SelectedRecord = record;
-        SearchStatus = record is null ? "No matching record" : record.State == ExportState.Ready ? "" : "Incomplete save";
+        SelectedRecord = null;
+        SearchStatus = "Searching…";
+        try
+        {
+            // Keep typing responsive; older database reads can finish but cannot replace newer results.
+            if (!string.IsNullOrWhiteSpace(fragment)) await Task.Delay(200, cancellation.Token);
+            var filter = SelectedFilter;
+            var records = await Task.Run(() => string.IsNullOrWhiteSpace(fragment)
+                ? filter is null ? [] : store.List(new(filter.AllProjects, filter.Project?.Id))
+                : store.SearchCodes(fragment), cancellation.Token);
+            if (version != searchVersion) return;
+            if (string.IsNullOrWhiteSpace(fragment))
+            {
+                foreach (var record in records) Journal.Add(record);
+                SearchStatus = "";
+            }
+            else ApplySearchResults(records);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { if (version == searchVersion) { SearchStatus = "Search failed. Try again."; ReportError(ex); } }
+        finally { if (ReferenceEquals(searchCancellation, cancellation)) searchCancellation = null; }
+    }
+
+    private void ApplySearchResults(IReadOnlyList<ExportRecord> records)
+    {
+        Journal.Clear();
+        foreach (var record in records) Journal.Add(record);
+        SelectedRecord = records.Count == 1 ? records[0] : null;
+        SearchStatus = records.Count == 0 ? "No matching record" : records.Count == 1
+            ? records[0].State == ExportState.Ready ? "" : "Incomplete save"
+            : $"{records.Count} matching records" + (records.Any(r => r.State != ExportState.Ready) ? " (includes incomplete saves)" : "");
     }
 
     private void Safe(Action action)
@@ -219,12 +459,16 @@ public sealed class MainViewModel : INotifyPropertyChanged
     }
     private void ReportError(Exception ex) => Status = ex switch
     {
-        ArgumentException or IOException or NotSupportedException or UnauthorizedAccessException => ex.Message,
+        ArgumentException input => input.ParamName is null ? input.Message : "Check the file name and input fields.",
+        UnauthorizedAccessException => "Access denied. Choose a file or folder you can access.",
+        IOException => "The file could not be opened. Check its location and access rights.",
+        NotSupportedException => ex.Message,
         _ => "The operation could not be completed. Check the file and available disk space."
     };
     private void RefreshCommands()
     {
         OpenCommand?.Refresh();
+        CaptureCommand?.Refresh();
         WatermarkCommand?.Refresh();
         OpenFileCommand?.Refresh();
         OpenFolderCommand?.Refresh();
