@@ -3,6 +3,7 @@
     <TargetFramework>net10.0-windows</TargetFramework>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.14" />
     <ProjectReference Include="../WaterMarker.Core/WaterMarker.Core.csproj" />
   </ItemGroup>
 </Project>
