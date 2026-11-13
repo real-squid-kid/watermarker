@@ -59,7 +59,7 @@ public sealed class DesktopDialogs : IDesktopDialogs
         AddExtension = true,
         OverwritePrompt = false,
         FileName = System.IO.Path.GetFileNameWithoutExtension(video.SourceName) + "_marked",
-        Filter = video.RequiresMkv ? "MKV video (*.mkv)|*.mkv" : "MP4 video (*.mp4)|*.mp4|MKV video (*.mkv)|*.mkv",
+        Filter = video.RequiresMkv ? "MKV video (*.mkv)|*.mkv" : !video.SupportsMkv ? "MP4 video (*.mp4)|*.mp4" : "MP4 video (*.mp4)|*.mp4|MKV video (*.mkv)|*.mkv",
         DefaultExt = video.RequiresMkv ? ".mkv" : ".mp4"
     });
 

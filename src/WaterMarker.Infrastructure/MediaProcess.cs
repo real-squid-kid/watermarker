@@ -4,10 +4,12 @@ using System.Text;
 
 namespace WaterMarker.Infrastructure;
 
+public sealed class MediaCommandException(string message, Exception inner) : NotSupportedException(message, inner);
+
 public static class MediaProcess
 {
     public static async Task<string> RunAsync(string executable, IEnumerable<string> arguments,
-        CancellationToken token = default, Action<string>? onLine = null, byte[]? input = null)
+        CancellationToken token = default, Action<string>? onLine = null, byte[]? input = null, bool discardOutput = false)
     {
         token.ThrowIfCancellationRequested();
         var start = new ProcessStartInfo(executable)
@@ -30,12 +32,13 @@ public static class MediaProcess
         });
         var output = new StringBuilder();
         var errors = new StringBuilder();
-        var readOutput = ReadAsync(process.StandardOutput, onLine is null ? output : null, onLine);
+        var readOutput = discardOutput ? process.StandardOutput.BaseStream.CopyToAsync(Stream.Null)
+            : ReadAsync(process.StandardOutput, onLine is null ? output : null, onLine);
         var readErrors = ReadAsync(process.StandardError, errors, null);
         var writeInput = WriteInputAsync();
         await Task.WhenAll(readOutput, readErrors, writeInput, process.WaitForExitAsync()).ConfigureAwait(false);
         token.ThrowIfCancellationRequested();
-        if (process.ExitCode != 0) throw new NotSupportedException("This video could not be processed. Check that it is complete and its codecs are supported.",
+        if (process.ExitCode != 0) throw new MediaCommandException("This video could not be processed. Check that it is complete and its codecs are supported.",
             new InvalidOperationException(errors.ToString().Trim()));
         return output.ToString();
 

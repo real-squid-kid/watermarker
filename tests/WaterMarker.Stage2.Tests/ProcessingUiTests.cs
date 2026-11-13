@@ -32,6 +32,11 @@ public sealed class ProcessingUiTests
             parser.Accept(line);
         Assert.Equal(new[] { 0.0, 25, 25, 100 }, updates.Select(p => p.Percent));
         Assert.Equal(TimeSpan.FromSeconds(10), updates[1].Processed);
+        var shifted = new List<VideoProgress>();
+        var delayedVideo = new FfmpegProgressParser(TimeSpan.FromSeconds(40), new InlineProgress<VideoProgress>(shifted.Add), TimeSpan.FromSeconds(.8));
+        delayedVideo.Accept("out_time_us=500000");
+        delayedVideo.Accept("out_time_us=10800000");
+        Assert.Equal(new[] { 0.0, 25 }, shifted.Select(p => p.Percent));
     }
 
     [Fact]

@@ -5,6 +5,7 @@
     <OutputType>Exe</OutputType>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="../../src/WaterMarker.App/WaterMarker.App.csproj" />
     <ProjectReference Include="../../src/WaterMarker.Infrastructure/WaterMarker.Infrastructure.csproj" />
     <ProjectReference Include="../../src/WaterMarker.Rendering/WaterMarker.Rendering.csproj" />
   </ItemGroup>

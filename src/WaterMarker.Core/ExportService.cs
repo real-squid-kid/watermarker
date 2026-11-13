@@ -23,6 +23,12 @@ public interface IExportMedia
     int CodeCount { get; }
     void RenderTo(string path, IReadOnlyList<string> codes, CancellationToken cancellationToken);
     void ValidateOutput(string path);
+    void ValidateOutput(string path, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ValidateOutput(path);
+        cancellationToken.ThrowIfCancellationRequested();
+    }
 }
 
 public sealed class ExportService(IJournalStore store, Action<ExportCheckpoint, ExportRecord>? checkpoint = null)
@@ -44,8 +50,8 @@ public sealed class ExportService(IJournalStore store, Action<ExportCheckpoint, 
             checkpoint?.Invoke(ExportCheckpoint.Reserved, record);
             media.RenderTo(record.TemporaryPath, record.Codes, token);
             checkpoint?.Invoke(ExportCheckpoint.Rendered, record);
-            media.ValidateOutput(record.TemporaryPath);
-            var hash = FileChecksum(record.TemporaryPath);
+            media.ValidateOutput(record.TemporaryPath, token);
+            var hash = FileChecksumCancellable(record.TemporaryPath, token);
             control.BeginPublishing(token);
             checkpoint?.Invoke(ExportCheckpoint.PublicationStarting, record);
             // From this point cancellation must not separate publication from its journal entry.
@@ -75,9 +81,22 @@ public sealed class ExportService(IJournalStore store, Action<ExportCheckpoint, 
         }
     }
 
-    public static string FileChecksum(string path)
+    public static string FileChecksum(string path) => FileChecksumCancellable(path, CancellationToken.None);
+
+    private static string FileChecksumCancellable(string path, CancellationToken cancellationToken)
     {
         using var stream = File.OpenRead(path);
-        return Convert.ToHexString(SHA256.HashData(stream));
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        var buffer = new byte[128 * 1024];
+        int read;
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            read = stream.Read(buffer, 0, buffer.Length);
+            if (read == 0) break;
+            hash.AppendData(buffer, 0, read);
+        }
+        cancellationToken.ThrowIfCancellationRequested();
+        return Convert.ToHexString(hash.GetHashAndReset());
     }
 }

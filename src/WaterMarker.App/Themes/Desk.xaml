@@ -143,6 +143,56 @@
             </Setter.Value>
         </Setter>
     </Style>
+    <Style x:Key="ScrubberArea" TargetType="RepeatButton">
+        <Setter Property="Focusable" Value="False" />
+        <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="RepeatButton"><Border Background="Transparent" /></ControlTemplate></Setter.Value></Setter>
+    </Style>
+    <Style x:Key="VideoScrubber" TargetType="Slider">
+        <Setter Property="Height" Value="30" />
+        <Setter Property="IsMoveToPointEnabled" Value="True" />
+        <Setter Property="FocusVisualStyle" Value="{StaticResource FocusMark}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Slider">
+                    <Grid Background="Transparent">
+                        <Border Height="12" Margin="2,0" CornerRadius="5" Background="#A87D4D" BorderBrush="#E4C38A" BorderThickness="0.8" />
+                        <Border Height="8" Margin="4,0" CornerRadius="3" Background="#293024" BorderBrush="#5A4A2D" BorderThickness="1,2,1,1" />
+                        <Track x:Name="PART_Track" Margin="4,0" IsDirectionReversed="False">
+                            <Track.DecreaseRepeatButton><RepeatButton Style="{StaticResource ScrubberArea}" Command="Slider.DecreaseLarge" /></Track.DecreaseRepeatButton>
+                            <Track.IncreaseRepeatButton><RepeatButton Style="{StaticResource ScrubberArea}" Command="Slider.IncreaseLarge" /></Track.IncreaseRepeatButton>
+                            <Track.Thumb>
+                                <Thumb Width="20" Height="27" Focusable="False">
+                                    <Thumb.Template>
+                                        <ControlTemplate TargetType="Thumb">
+                                            <Grid>
+                                                <Border Margin="1,3,0,0" CornerRadius="4" Background="#6A1C160E" />
+                                                <Border x:Name="Handle" Margin="0,0,1,3" CornerRadius="4" BorderBrush="#584328" BorderThickness="1">
+                                                    <Border.Background>
+                                                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                                            <GradientStop Color="#F4DEAB" Offset="0" /><GradientStop Color="#C6A773" Offset="0.45" /><GradientStop Color="#82663F" Offset="1" />
+                                                        </LinearGradientBrush>
+                                                    </Border.Background>
+                                                    <Border Margin="2" CornerRadius="2" BorderBrush="#91FFF1C5" BorderThickness="1,1,0,0" />
+                                                </Border>
+                                                <Rectangle Width="2" Height="12" Fill="#765B37" Margin="0,0,1,3" RadiusX="1" />
+                                            </Grid>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Handle" Property="BorderBrush" Value="#FFE4A0" /></Trigger>
+                                                <Trigger Property="IsDragging" Value="True"><Setter TargetName="Handle" Property="BorderBrush" Value="#FFF4CA" /></Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Thumb.Template>
+                                </Thumb>
+                            </Track.Thumb>
+                        </Track>
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.55" /></Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
     <Style TargetType="TextBox">
         <Setter Property="Padding" Value="8,5" />
         <Setter Property="MinHeight" Value="34" />

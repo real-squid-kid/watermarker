@@ -43,7 +43,9 @@
                             </StackPanel>
                         </ScrollViewer>
                     </visuals:PaperSheet>
-                    <visuals:TelevisionHost x:Name="TelevisionHost" Grid.Column="2" AspectRatio="{Binding TelevisionAspectRatio}" UseLayoutRounding="False">
+                    <Grid Grid.Column="2">
+                    <Grid.RowDefinitions><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                    <visuals:TelevisionHost x:Name="TelevisionHost" AspectRatio="{Binding TelevisionAspectRatio}" UseLayoutRounding="False">
                         <visuals:TelevisionCase x:Name="Television" UseLayoutRounding="False" AllowDrop="True"
                                                 PreviewDragOver="TelevisionDragOver" DragLeave="TelevisionDragLeave" PreviewDrop="TelevisionDrop">
                             <Grid x:Name="ScreenAperture" Background="Black" UseLayoutRounding="False">
@@ -59,6 +61,11 @@
                             </Grid>
                         </visuals:TelevisionCase>
                     </visuals:TelevisionHost>
+                    <DockPanel Grid.Row="1" Visibility="{Binding HasVideo, Converter={StaticResource BoolVisibility}}" Margin="8,5,8,0">
+                        <TextBlock DockPanel.Dock="Right" Text="{Binding VideoPositionText}" Foreground="#FFF5D7" FontFamily="Consolas" VerticalAlignment="Center" Margin="10,0,0,0" />
+                        <Slider x:Name="VideoPositionSlider" Minimum="0" Maximum="{Binding VideoMaxPosition}" Value="{Binding VideoPosition, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource VideoScrubber}" AutomationProperties.Name="Video preview position" ToolTip="Choose a frame to preview" />
+                    </DockPanel>
+                    </Grid>
                 </Grid>
                 <DockPanel Grid.Row="2" Margin="0,2">
                     <Button x:Name="WatermarkButton" Content="_Watermark" Command="{Binding WatermarkCommand}" Style="{StaticResource Stamp}" TabIndex="8" />

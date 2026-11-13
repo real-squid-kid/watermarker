@@ -21,6 +21,12 @@ public sealed class MainViewModel : INotifyPropertyChanged
     private readonly IDesktopDialogs dialogs;
     private ImageDocument? image;
     private VideoInfo? video;
+    private CancellationTokenSource? seekCancellation;
+    private int seekVersion;
+    private double videoPosition;
+    private double confirmedVideoPosition;
+    private bool seeking;
+    public Task VideoSeekExecution { get; private set; } = Task.CompletedTask;
     private readonly VideoTools videoTools = new();
     private ProjectOption? selectedProject;
     private ProjectOption? selectedFilter;
@@ -61,6 +67,22 @@ public sealed class MainViewModel : INotifyPropertyChanged
     public string SourceDisplay => image is null ? "No media selected" : $"{image.SourceName} · {image.Pixels.PixelWidth} × {image.Pixels.PixelHeight}" +
         (video is null ? "" : $" · {VideoProgressViewModel.Format(video.Duration)}");
     public double TelevisionAspectRatio => image is null ? TelevisionFormats.Default : TelevisionFormats.Select(image.Pixels.PixelWidth, image.Pixels.PixelHeight);
+    public bool HasVideo => video is not null;
+    public double VideoDurationSeconds => video?.Duration.TotalSeconds ?? 0;
+    public double VideoMaxPosition => Math.Max(0, VideoDurationSeconds - .001);
+    public string VideoPositionText => $"{VideoProgressViewModel.Format(TimeSpan.FromSeconds(VideoPosition))} / {VideoProgressViewModel.Format(TimeSpan.FromSeconds(VideoDurationSeconds))}";
+    public double VideoPosition
+    {
+        get => videoPosition;
+        set
+        {
+            var position = Math.Clamp(value, 0, VideoMaxPosition);
+            if (Math.Abs(videoPosition - position) < .001) return;
+            videoPosition = position;
+            Changed(); Changed(nameof(VideoPositionText));
+            if (video is not null) VideoSeekExecution = SeekVideoAsync(video, position);
+        }
+    }
     public BitmapSource? Preview { get => preview; private set { preview = value; Changed(); WatermarkCommand?.Refresh(); } }
     public bool IsBusy { get => busy; private set { busy = value; Changed(); RefreshCommands(); } }
     public bool IsExporting => exportControl is not null;
@@ -103,7 +125,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         this.dialogs = dialogs;
         OpenCommand = new(OpenAsync, ReportError, () => !IsBusy);
         CaptureCommand = new(CaptureAsync, ReportError, () => !IsBusy);
-        WatermarkCommand = new(ExportAsync, ReportError, () => !IsBusy && image is not null && Preview is not null);
+        WatermarkCommand = new(ExportAsync, ReportError, () => !IsBusy && !seeking && image is not null && Preview is not null);
         CancelCommand = new(CancelExport, () => CanCancel);
         NewProjectCommand = new(() => Safe(() => EditProject(false)));
         RenameProjectCommand = new(() => Safe(() => EditProject(true)), () => SelectedProject?.Project is not null);
@@ -150,8 +172,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
         try
         {
             var loaded = await StaWorker.Run(() => ImageDocument.Load(path));
+            CancelVideoSeek();
             image = loaded;
             video = null;
+            ResetVideoPosition();
             Preview = null;
             Changed(nameof(SourceDisplay));
             Changed(nameof(TelevisionAspectRatio));
@@ -174,6 +198,8 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             await videoTools.EnsureAvailableAsync();
             var loaded = await videoTools.ProbeAsync(path);
+            Status = "Checking audio and containers…";
+            loaded = await videoTools.CheckContainersAsync(loaded);
             var bytes = await videoTools.PreviewAsync(loaded);
             var frame = await StaWorker.Run(() =>
             {
@@ -183,8 +209,10 @@ public sealed class MainViewModel : INotifyPropertyChanged
                 pixels.Freeze();
                 return new ImageDocument(loaded.SourcePath, "Video", pixels);
             });
+            CancelVideoSeek();
             image = frame;
             video = loaded;
+            ResetVideoPosition();
             Changed(nameof(SourceDisplay));
             Changed(nameof(TelevisionAspectRatio));
             await RefreshPreviewAsync();
@@ -210,7 +238,9 @@ public sealed class MainViewModel : INotifyPropertyChanged
             var captured = await dialogs.CaptureImageAsync();
             if (captured is null) { Status = ""; return; }
             image = captured;
+            CancelVideoSeek();
             video = null;
+            ResetVideoPosition();
             Changed(nameof(SourceDisplay));
             Changed(nameof(TelevisionAspectRatio));
             await RefreshPreviewAsync();
@@ -268,11 +298,75 @@ public sealed class MainViewModel : INotifyPropertyChanged
 
     public void ReleasePreview()
     {
+        CancelVideoSeek();
         CancelPendingSearch();
         ++previewVersion;
         previewCancellation?.Cancel();
         previewCancellation?.Dispose();
         previewCancellation = null;
+    }
+
+    private void ResetVideoPosition()
+    {
+        videoPosition = confirmedVideoPosition = 0;
+        Changed(nameof(HasVideo)); Changed(nameof(VideoDurationSeconds)); Changed(nameof(VideoMaxPosition));
+        Changed(nameof(VideoPosition)); Changed(nameof(VideoPositionText));
+    }
+
+    private void CancelVideoSeek()
+    {
+        var wasSeeking = seeking;
+        ++seekVersion;
+        seekCancellation?.Cancel();
+        seekCancellation = null;
+        seeking = false;
+        if (wasSeeking) WatermarkCommand?.Refresh();
+    }
+
+    private async Task SeekVideoAsync(VideoInfo source, double position)
+    {
+        CancelVideoSeek();
+        var version = seekVersion;
+        using var cancellation = new CancellationTokenSource();
+        seekCancellation = cancellation;
+        seeking = true;
+        WatermarkCommand.Refresh();
+        try
+        {
+            await Task.Delay(200, cancellation.Token);
+            var bytes = await videoTools.PreviewAsync(source, cancellation.Token, TimeSpan.FromSeconds(position));
+            var frame = await StaWorker.Run(() =>
+            {
+                using var buffer = new MemoryStream(bytes);
+                var decoder = BitmapDecoder.Create(buffer, BitmapCreateOptions.None, BitmapCacheOption.OnLoad);
+                var pixels = decoder.Frames[0];
+                pixels.Freeze();
+                return new ImageDocument(source.SourcePath, "Video", pixels);
+            });
+            if (version != seekVersion || !ReferenceEquals(video, source)) return;
+            image = frame;
+            confirmedVideoPosition = position;
+            await RefreshPreviewAsync();
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            if (version == seekVersion)
+            {
+                videoPosition = confirmedVideoPosition;
+                Changed(nameof(VideoPosition)); Changed(nameof(VideoPositionText));
+                ReportError(ex);
+            }
+        }
+        finally
+        {
+            if (version == seekVersion)
+            {
+                seekCancellation = null;
+                seeking = false;
+                WatermarkCommand.Refresh();
+            }
+        }
     }
 
     private async Task RefreshPreviewAsync()
@@ -319,6 +413,7 @@ public sealed class MainViewModel : INotifyPropertyChanged
         {
             if (extension is not (".mp4" or ".mkv")) throw new ArgumentException("Choose an MP4 or MKV output file.");
             if (sourceVideo.RequiresMkv && extension != ".mkv") throw new ArgumentException("Choose MKV to preserve this video's original audio tracks.");
+            if (extension == ".mkv" && !sourceVideo.SupportsMkv) throw new ArgumentException("Choose MP4 to preserve this video's original audio tracks.");
         }
         // Immutable snapshot: editing project or fields after this point affects the next export only.
         var request = new ExportRequest(SelectedProject?.Project, Recipient, channelName, target).Validate();

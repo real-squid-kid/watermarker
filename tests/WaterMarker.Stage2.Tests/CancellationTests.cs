@@ -95,4 +95,46 @@ public sealed class CancellationTests
         Assert.False(publishing.TryCancel());
         Assert.False(publishing.Token.IsCancellationRequested);
     }
+
+    private sealed class ValidationWaiter : IExportMedia, IDisposable
+    {
+        public ManualResetEventSlim Entered { get; } = new();
+        public string SourceName => "source.mp4";
+        public string SourceType => "Video";
+        public int CodeCount => 1;
+        public void RenderTo(string path, IReadOnlyList<string> codes, CancellationToken token) => File.WriteAllText(path, "temporary video");
+        public void ValidateOutput(string path) => throw new InvalidOperationException("Cancellation must be passed to validation.");
+        public void ValidateOutput(string path, CancellationToken token)
+        {
+            Entered.Set();
+            token.WaitHandle.WaitOne(TimeSpan.FromSeconds(10));
+            token.ThrowIfCancellationRequested();
+            throw new TimeoutException("Cancellation did not reach validation.");
+        }
+        public void Dispose() => Entered.Dispose();
+    }
+
+    [Fact]
+    public async Task CancellationDuringValidationInterruptsExportAndRemovesTemporaryFile()
+    {
+        using var workspace = new Workspace();
+        var store = workspace.Store();
+        using var media = new ValidationWaiter();
+        using var control = new ExportControl();
+        ExportRecord? reserved = null;
+        var target = workspace.File("cancelled.mp4");
+        var service = new ExportService(store, (phase, record) => { if (phase == ExportCheckpoint.Reserved) reserved = record; });
+        var operation = Task.Run(() => service.Export(new(null, "A", "Email", target), media, control: control), TestContext.Current.CancellationToken);
+        try
+        {
+            Assert.True(await Task.Run(() => media.Entered.Wait(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken), TestContext.Current.CancellationToken));
+            Assert.True(control.TryCancel());
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => operation);
+            Assert.NotNull(reserved);
+            Assert.False(File.Exists(target));
+            Assert.False(File.Exists(reserved.TemporaryPath));
+            Assert.Equal(ExportState.Interrupted, store.Find(reserved.Codes[0])!.State);
+        }
+        finally { control.TryCancel(); }
+    }
 }
