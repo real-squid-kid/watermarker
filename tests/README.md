@@ -34,7 +34,7 @@ FFmpeg-экспорт/отмену; интеграционные тесты тр
 требуют отдельной ручной проверки.
 
 `VisualAcceptanceTests` создаёт материалы только при заданных
-`WATERMARKER_ACCEPTANCE_DIR` и `WATERMARKER_PHOTO_FIXTURE` (см. `docs/DEVELOPMENT.md`).
+`WATERMARKER_ACCEPTANCE_DIR` и `WATERMARKER_PHOTO_FIXTURE` (путь к локальной фотографии).
 Без этих переменных генерация пропускается; геометрическое покрытие пяти обрезок
 всегда проверяется отдельными тестами `EveryQuarterAndCenterContainAWholeCode`.
 

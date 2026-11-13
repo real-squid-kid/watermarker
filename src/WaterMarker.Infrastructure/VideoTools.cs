@@ -9,11 +9,17 @@ public sealed class VideoTools
     private static string Tool(string name)
     {
         var directory = Environment.GetEnvironmentVariable("WATERMARKER_FFMPEG_DIRECTORY");
-        if (!string.IsNullOrWhiteSpace(directory)) return Path.Combine(directory, name + ".exe");
-        var bundledDirectory = Path.Combine(AppContext.BaseDirectory, "ffmpeg");
-        // Keep the two executables together; a partial bundle must not silently mix versions with PATH.
-        return File.Exists(Path.Combine(bundledDirectory, "ffmpeg.exe")) || File.Exists(Path.Combine(bundledDirectory, "ffprobe.exe"))
-            ? Path.Combine(bundledDirectory, name + ".exe") : name;
+        var links = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Microsoft", "WinGet", "Links");
+        return ResolveTool(name, directory, links, File.Exists);
+    }
+
+    public static string ResolveTool(string name, string? configuredDirectory, string wingetLinks, Func<string, bool> exists)
+    {
+        if (!string.IsNullOrWhiteSpace(configuredDirectory)) return Path.Combine(configuredDirectory, name + ".exe");
+        // PATH changes from WinGet are not inherited by an already running process.
+        // Use the pair from the same directory, even if one of the links is missing.
+        return exists(Path.Combine(wingetLinks, "ffmpeg.exe")) || exists(Path.Combine(wingetLinks, "ffprobe.exe"))
+            ? Path.Combine(wingetLinks, name + ".exe") : name;
     }
 
     public async Task EnsureAvailableAsync(CancellationToken token = default)
@@ -48,7 +54,7 @@ public sealed class VideoTools
         var ffmpeg = Version(ffmpegBanner, "ffmpeg");
         var ffprobe = Version(ffprobeBanner, "ffprobe");
         if (ffmpeg is null || ffprobe is null || !string.Equals(ffmpeg, ffprobe, StringComparison.OrdinalIgnoreCase))
-            throw new NotSupportedException("FFmpeg and FFprobe must come from the same build. Check the bundled files or configured folder.");
+            throw new NotSupportedException("FFmpeg and FFprobe must come from the same build. Check your installation or configured folder.");
     }
 
     public async Task<VideoInfo> ProbeAsync(string path, CancellationToken token = default)

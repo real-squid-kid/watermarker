@@ -2,6 +2,7 @@
 /WaterMarker_TZ.md
 /*_TZ.md
 /*ТЗ*.md
+/docs/DEVELOPMENT.md
 /.local/
 /notes/
 /private/
@@ -44,3 +45,4 @@ AGENTS.MD
 ffmpeg.exe
 ffprobe.exe
 *.log
+

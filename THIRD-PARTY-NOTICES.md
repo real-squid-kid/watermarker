@@ -2,7 +2,7 @@
 
 WaterMarker's own code is licensed under MIT; see [LICENSE](LICENSE). The components
 below retain their respective licenses. This inventory describes the current dependency
-graph and development FFmpeg build; it must be reviewed again for each distributed build.
+graph and the separately installed FFmpeg development build; review it again for each release.
 
 ## Application dependencies
 
@@ -22,7 +22,10 @@ WaterMarker does not bundle these font files; their use depends on the Windows i
 ## FFmpeg and x264
 
 WaterMarker invokes [FFmpeg and FFprobe](https://ffmpeg.org/), including the libx264
-encoder, as separate executables. The development build observed here is
+encoder, as separate executables. WaterMarker does not include these executables in its
+distribution. When they are unavailable, the application can offer to install the
+separate `Gyan.FFmpeg` package via Windows Package Manager; alternatively, the user
+can install a compatible build independently. The development build observed here is
 `8.0.1-full_build-www.gyan.dev`, built with GPL, version 3, static linking and libx264;
 its `ffmpeg -L` identifies GPL version 3 or later. The license text provided with that
 build is [GPL-3.0](licenses/FFmpeg-GPL-3.0.txt). [x264](https://www.videolan.org/developers/x264.html)
@@ -38,11 +41,9 @@ lists the build configuration and many external library versions. These hashes d
 an approved release package; the supplier's source link alone does not identify the
 corresponding source of every statically linked third-party library.
 
-The exact FFmpeg build has not yet been verified for redistribution.
-The static development build includes many other libraries, each requiring an audit of
-its license and notices. Before bundling, identify and provide the corresponding source,
-build configuration, applicable licenses and notices for the exact binaries and their
-included components. Consult [FFmpeg's licensing guidance](https://ffmpeg.org/legal.html).
+The development build contains many other components. If a future release includes
+FFmpeg binaries, revisit their sources, licenses and distribution obligations. Consult
+[FFmpeg's licensing guidance](https://ffmpeg.org/legal.html).
 
 ## Development and test dependencies
 

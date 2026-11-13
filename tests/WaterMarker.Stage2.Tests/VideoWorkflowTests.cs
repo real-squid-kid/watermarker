@@ -10,6 +10,17 @@ namespace WaterMarker.Stage2.Tests;
 public sealed class VideoWorkflowTests
 {
     [Fact]
+    public void ToolResolutionUsesExplicitFolderOrTheInstalledWingetPair()
+    {
+        var configured = Path.Combine("C:\\", "Custom FFmpeg");
+        var links = Path.Combine("C:\\", "User", "WinGet", "Links");
+        Assert.Equal(Path.Combine(configured, "ffmpeg.exe"), VideoTools.ResolveTool("ffmpeg", configured, links, _ => true));
+        Assert.Equal(Path.Combine(links, "ffprobe.exe"), VideoTools.ResolveTool("ffprobe", null, links,
+            path => path == Path.Combine(links, "ffmpeg.exe")));
+        Assert.Equal("ffmpeg", VideoTools.ResolveTool("ffmpeg", null, links, _ => false));
+    }
+
+    [Fact]
     public void ExecutablesMustBeTheMatchingFfmpegAndFfprobeBuilds()
     {
         VideoTools.ValidateToolVersions("ffmpeg version 8.0.1-full_build\nconfiguration", "ffprobe version 8.0.1-full_build\nconfiguration");

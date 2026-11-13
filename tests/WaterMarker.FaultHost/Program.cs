@@ -14,12 +14,6 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
-        if (args is ["--check-bundle", var bundle])
-        {
-            AppContext.SetData("APP_CONTEXT_BASE_DIRECTORY", Path.GetFullPath(bundle) + Path.DirectorySeparatorChar);
-            new VideoTools().EnsureAvailableAsync().GetAwaiter().GetResult();
-            return 0;
-        }
         if (args.Length is not (2 or 3)) return 64;
         var directory = Path.GetFullPath(args[0]);
         var kill = args[1].StartsWith("Kill:", StringComparison.Ordinal);
